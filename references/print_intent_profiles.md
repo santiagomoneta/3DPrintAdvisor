@@ -72,6 +72,20 @@ Key settings: more walls, more infill, moderate speed for good bonding.
 | Ironing | no | no | top | no | no | no |
 | Bridge flow | 0.95 | 0.90 | 0.85 | 1.0 | 1.0 | 0.95 |
 
+> **Bridge flow is per-layer-height**: The values above are defaults for each intent's standard layer height. Bridge flow varies significantly with layer height — thicker layers sag more and need lower flow ratios. If you change the layer height for a given intent, re-calibrate bridge flow. See `calibration_toolkit.md` §2.10 for the full procedure and per-layer-height reference table.
+
+## Fan Speed Defaults by Intent
+
+| Setting | Functional | Visual | Miniature | Prototype | Wearable | Structural |
+|---------|-----------|--------|-----------|-----------|----------|------------|
+| Min fan % | 40 | 50 | 60 | 30 | 40 | 30 |
+| Max fan % | 100 | 100 | 100 | 100 | 100 | 80 |
+| Bridge fan % | 100 | 100 | 100 | 80 | 80 | 80 |
+| Min layer time (s) | 10 | 12 | 15 | 6 | 10 | 8 |
+| Slow down min speed | 15 | 10 | 8 | 20 | 10 | 15 |
+
+> These are PLA defaults. PETG: reduce all fan speeds by 20-30%. ABS/ASA: reduce to 0-40%. TPU: similar to PLA. These should be overridden by actual per-filament calibration results when available.
+
 ## Filament Adjustments by Intent
 
 ### PLA

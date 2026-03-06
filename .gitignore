@@ -1,0 +1,13 @@
+# User-specific state (created on first run)
+state/profile_context.json
+
+# Generated profiles (user output)
+output/**/*.json
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~

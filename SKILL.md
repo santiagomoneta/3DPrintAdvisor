@@ -90,7 +90,54 @@ Based on the gathered data, automatically determine:
 | Cooling capacity | User-reported; affects bridge/overhang speed limits |
 | Enclosure | Affects material selection and max ambient temp |
 
-### Step 6: Save state
+### Step 6: Detect and install missing Klipper extras
+
+After discovering the printer's current config, audit which optional Klipper modules/macros are missing and offer to install them. This is critical for newbie users with fresh Klipper installs.
+
+**Audit**: Run `scripts/install_klipper_extras.sh <moonraker_url> --check` to get a JSON report of what's installed vs missing. Reference `references/klipper_extras_database.md` for the full list and installation priority.
+
+**Present findings** to the user using the `question` tool. Group by priority:
+
+**Critical (should always install)**:
+- `exclude_object` — Required for object cancellation and KAMP
+- `firmware_retraction` — Required for KAMP purge, enables runtime retraction tuning
+- `gcode_arcs` — Arc support for smoother curves and smaller gcode files
+
+**Recommended (significant quality-of-life improvements)**:
+- KAMP — Adaptive bed meshing + smart purge placement
+- TEST_SPEED macro — Quick speed/accel validation
+- `skew_correction` — Frame squareness compensation (just enables the section)
+- `axis_twist_compensation` — Gantry twist correction (bed-slingers especially)
+
+**Optional (for users who want to push limits)**:
+- klipper_auto_speed — Automated max accel/velocity binary search
+- `resonance_tester` + `input_shaper` — If accelerometer present and not already configured
+
+**Installation flow**:
+1. Show the user what's missing with a brief explanation of each
+2. Ask which they want to install (allow multiple selection, recommend all critical + recommended)
+3. Run `scripts/install_klipper_extras.sh <moonraker_url> <extra1> <extra2> ...`
+4. The script handles: config injection via Moonraker file API, SSH to Klipper host for git clones, moonraker.conf updates, and automatic service restarts
+5. After install, re-run `scripts/fetch_klipper_config.sh` to verify the new config sections are active
+6. If SSH fails for third-party modules (auto_speed, KAMP), provide the manual commands the user can paste into their SSH terminal
+
+**SSH access**: Third-party modules (auto_speed, KAMP) require SSH to the Klipper host. If this is the first time, ask the user:
+- Do you have SSH access to your printer? (most Klipper setups do — `ssh pi@<printer-ip>`)
+- Have you set up SSH keys? If not, provide instructions for `ssh-copy-id`
+
+**Track installed extras** in `profile_context.json` under `klipper.installed_extras`:
+```json
+"installed_extras": {
+  "firmware_retraction": {"installed": true, "installed_by": "3dprint-advisor"},
+  "exclude_object": {"installed": true, "installed_by": "3dprint-advisor"},
+  "gcode_arcs": {"installed": true, "installed_by": "3dprint-advisor"},
+  "kamp": {"installed": true, "installed_by": "3dprint-advisor"},
+  "test_speed": {"installed": true, "installed_by": "3dprint-advisor"},
+  "auto_speed": {"installed": false, "reason": "user_declined"}
+}
+```
+
+### Step 7: Save state
 
 Write everything to `state/profile_context.json`. This is the persistent memory. Format:
 
@@ -233,10 +280,12 @@ Before delivering the profile, check if the filament has been calibrated. Track 
 - Profile is ready to use immediately
 
 **Calibration scope reminder** (critical knowledge):
-- Temperature, flow rate, retraction, max volumetric flow → per-filament, ONE TIME, valid across ALL process profiles
+- Temperature, flow rate, retraction, max volumetric flow, fan speed, min layer time, min layer speed → per-filament, ONE TIME, valid across ALL process profiles
 - Pressure Advance (static) → per-filament, but varies with speed/accel. A single value is a compromise across different process profiles
 - Pressure Advance (Adaptive) → per-filament, ONE TIME, valid across ALL process profiles (OrcaSlicer builds a PA model across speed/accel range)
-- Changing process profile (e.g., from "functional" to "miniature") does NOT require re-running calibration — the per-filament calibration is still valid
+- **Bridge flow rate → per-filament AND per-layer-height (the per-process exception)**. This is the one calibration that genuinely varies by process profile. A 0.08mm layer needs different bridge flow than 0.24mm. When generating a new process profile at a layer height the user hasn't used before, flag that bridge flow needs calibration for that layer height.
+- Shrinkage compensation → per-filament, ONE TIME, valid across all process profiles. Skip for PLA/PETG (negligible). Required for ABS/ASA/Nylon/PC.
+- Changing process profile (e.g., from "functional" to "miniature") does NOT require re-running filament calibration — the per-filament calibration is still valid. BUT bridge flow may need a quick re-test if the layer height changed.
 
 ### Step 6: Explain and deliver
 
@@ -290,6 +339,17 @@ Generates OrcaSlicer profile JSONs from context + intent.
 Usage: `python3 scripts/generate_profile.py --context state/profile_context.json --intent <intent> --filament <filament> --output-dir <dir>`
 Output: OrcaSlicer-compatible JSON files.
 
+### `scripts/install_klipper_extras.sh`
+Detects and installs missing Klipper optional modules, macros, and third-party extensions.
+Usage:
+- Check what's missing: `bash scripts/install_klipper_extras.sh <moonraker_url> --check`
+- Install extras: `bash scripts/install_klipper_extras.sh <moonraker_url> firmware_retraction exclude_object gcode_arcs kamp test_speed`
+- List all available: `bash scripts/install_klipper_extras.sh <moonraker_url> --list`
+
+Supported extras: `firmware_retraction`, `exclude_object`, `gcode_arcs`, `skew_correction`, `axis_twist_compensation`, `auto_speed`, `kamp`, `test_speed`.
+Native config sections are injected via Moonraker file API. Third-party modules (auto_speed, KAMP) require SSH to the Klipper host. The script handles config injection, moonraker.conf updates, service restarts, and duplicate detection.
+Output: JSON to stdout with install results per extra.
+
 ---
 
 ## References
@@ -306,6 +366,9 @@ Known hotend models with volumetric flow limits, max temps, and characteristics.
 ### `references/orca_klipper_mapping.md`
 Complete OrcaSlicer JSON key ↔ Klipper config mapping table.
 
+### `references/klipper_extras_database.md`
+Complete reference for all optional Klipper modules/macros the skill may install. Covers native config sections, third-party modules (auto_speed, KAMP), standalone macros (TEST_SPEED), with install procedures, config snippets, and priority ordering for newbies.
+
 ---
 
 ## File Structure
@@ -313,15 +376,19 @@ Complete OrcaSlicer JSON key ↔ Klipper config mapping table.
 ```
 3dprint-advisor/
 ├── SKILL.md                              # This file
+├── AGENTS.md                             # Codebase index for AI agents
+├── README.md                             # GitHub-facing documentation
 ├── scripts/
 │   ├── detect_environment.sh             # OS + OrcaSlicer detection
 │   ├── fetch_klipper_config.sh           # Moonraker API config fetch
-│   └── generate_profile.py              # Profile JSON generator
+│   ├── generate_profile.py              # Profile JSON generator
+│   └── install_klipper_extras.sh        # Automated Klipper extras installer
 ├── references/
 │   ├── print_intent_profiles.md          # Intent → settings matrices
 │   ├── calibration_toolkit.md            # Calibration guide
 │   ├── hotend_database.md                # Hotend flow limits
-│   └── orca_klipper_mapping.md           # Setting mapping table
+│   ├── orca_klipper_mapping.md           # Setting mapping table
+│   └── klipper_extras_database.md        # Klipper module install procedures
 ├── state/
 │   └── profile_context.json              # Persisted printer/env state (created on first run)
 └── output/                               # Generated profiles land here

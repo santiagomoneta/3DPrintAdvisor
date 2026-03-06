@@ -30,7 +30,7 @@ Clone this repo into your skills directory:
 
 ```bash
 # OpenCode
-git clone https://github.com/santiagomoneta/3dprint-advisor.git ~/.agents/skills/3dprint-advisor
+git clone https://github.com/<your-username>/3dprint-advisor.git ~/.agents/skills/3dprint-advisor
 
 # Or wherever your agent loads skills from
 ```
