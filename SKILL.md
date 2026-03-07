@@ -20,46 +20,49 @@ Run these steps sequentially. Use the `question` tool to gather what can't be au
 
 ### Step 1: Detect local environment
 
-Run `scripts/detect_environment.sh` to auto-detect:
-- OS (macOS/Linux/Windows via WSL)
-- OrcaSlicer install path and version
-- OrcaSlicer user profile directory (where generated profiles will go)
+Run `scripts/detect_environment.py` to auto-detect OS, OrcaSlicer path, and profile directory.
 
-If OrcaSlicer is not found, ask the user where it's installed or if they use a different slicer.
+### Step 2: Printer Discovery & Selection
 
-### Step 2: Ask about the printer
+1.  List all `.json` files in the OrcaSlicer `machine` folder.
+2.  Use the `question` tool to ask the user:
+    - **Which printer profile is your primary?** (Provide list of discovered machine profiles).
+    - **Is this printer stock or modded?** (Stock / Modded).
 
-Use the `question` tool to gather hardware context. Ask in batches, not one at a time:
+### Step 3: Granular Hardware Discovery (Choice-based)
 
-**Batch 1 — Base printer**:
-- What printer do you have? (e.g., Ender 3 V2, Voron 2.4, Prusa MK3S)
-- Is it stock or modded? If modded, list the mods.
+If modded, walk the user through a detailed checklist of common 3D printer mods in batches. Each question must provide the most common industry-standard options and an "Other" option for manual text entry.
 
-**Batch 2 — Klipper access** (if user says Klipper):
-- What is the IP or hostname of the Klipper machine? (Moonraker API)
-- Is it on the local network? (test connectivity)
+**Batch 1 — Motion & Frame**:
+- **Z-Axis Setup**: (Single Z-Screw, Dual Z-Screws (Mechanical), Independent Dual Z, Belted Z, Other).
+- **Motion System**: (X-Axis Linear Rails, Y-Axis Linear Rails, Z-Axis Linear Rails, Stock Wheels, Other) [Multi-select].
+- **Stepper Motors**: (Stock Motors, Upgraded LDO/Moons, Pancake E-axis only, Other).
 
-If Moonraker is available, run `scripts/fetch_klipper_config.sh <ip>` to pull the full config automatically. This replaces most manual questions.
+**Batch 2 — Extruder & Cooling**:
+- **Extruder Mounting**: (Direct Drive (DD), Bowden Setup, Other).
+- **Hotend Model**: (Creality Stock (PTFE), Creality (All-Metal), Upgraded (Spider/Dragon/etc.), Other).
+- **Cooling Blowers**: (Single 4010 Fan, Single 5015 Fan, Dual 5015 Fans (e.g. Hero Me), 4020 Blower Fan, Other) [Multi-select].
 
-**Batch 3 — Fill gaps not in Klipper config** (only ask what the API didn't reveal):
-- Hotend make/model (Klipper config doesn't store this)
-- Extruder type (direct drive / bowden, gear ratio)
-- Cooling setup (stock / upgraded, fan count)
-- Bed surface (PEI, glass, textured, etc.)
-- Enclosure (yes/no)
-- Nozzle material and diameter (verify against config)
+**Batch 3 — Bed & Mainboard**:
+- **Mainboard Model**: (Creality (Stock) Board, BTT (SKR/Mini E3), MKS/Octopus/Spider, Other).
+- **Probing & Bed Surface**: (BLTouch (Probe) Upgrade, PEI Textured Surface Upgrade, Inductive Upgrade, Other) [Multi-select].
 
-### Step 3: Ask about filaments
+### Step 4: Klipper Access (if applicable)
 
-Ask which filaments the user prints with. Common options:
-- PLA, PETG, TPU/Flex, ABS, ASA, Nylon, PC, SILK, CF-filled
-- Do they have specific brands they use regularly?
+- Ask for Moonraker IP/Hostname.
+- Test connectivity and run `scripts/fetch_klipper_config.py <ip>`.
 
-If no enclosure: note that ABS/ASA/PC/Nylon are not recommended and skip generating those profiles unless user insists.
+### Step 5: Filaments & Brands
+
+- Ask for filaments: (PLA, PETG, TPU, ABS, ASA, Nylon).
+- Ask for preferred brands (Text input).
+
+### Step 6: Validate & Identfy Bottlenecks
+(As described in previous version)
 
 ### Step 4: Validate Moonraker data
 
-If Moonraker is reachable, run `scripts/fetch_klipper_config.sh <ip>` and parse:
+If Moonraker is reachable, run `scripts/fetch_klipper_config.py <ip>` and parse:
 - `[printer]` — kinematics, max_velocity, max_accel
 - `[extruder]` — rotation_distance, nozzle_diameter, pressure_advance, max_extrude_cross_section
 - `[input_shaper]` — shaper types and frequencies
@@ -118,7 +121,7 @@ After discovering the printer's current config, audit which optional Klipper mod
 2. Ask which they want to install (allow multiple selection, recommend all critical + recommended)
 3. Run `scripts/install_klipper_extras.sh <moonraker_url> <extra1> <extra2> ...`
 4. The script handles: config injection via Moonraker file API, SSH to Klipper host for git clones, moonraker.conf updates, and automatic service restarts
-5. After install, re-run `scripts/fetch_klipper_config.sh` to verify the new config sections are active
+5. After install, re-run `scripts/fetch_klipper_config.py` to verify the new config sections are active
 6. If SSH fails for third-party modules (auto_speed, KAMP), provide the manual commands the user can paste into their SSH terminal
 
 **SSH access**: Third-party modules (auto_speed, KAMP) require SSH to the Klipper host. If this is the first time, ask the user:
@@ -186,6 +189,22 @@ Write everything to `state/profile_context.json`. This is the persistent memory.
   "generated_profiles": []
 }
 ```
+
+### Step 8: Post-Onboarding Validation Checklist
+
+Once profiles are generated and saved, present a hardware and filament validation checklist to the user to ensure their physical printer matches the new high-performance slicer settings.
+
+**1. Klipper Hardware Validation**:
+- **Rotation Distance**: Suggest verifying that 100mm of requested filament actually pulls 100mm, especially if the extruder was upgraded.
+- **Max Speed/Accel**: Suggest running the `TEST_SPEED` macro to ensure the frame/motors can handle the configured limits.
+- **Belt Tension & Input Shaper**: Remind the user to check belt tension (80-120Hz) and re-run `SHAPER_CALIBRATE` if they have linear rails or recently changed belts.
+
+**2. OrcaSlicer Filament Validation**:
+- Suggest running **Temperature Tower**, **Flow Rate**, and **Pressure Advance** calibrations using the newly generated process profile.
+- If the user aims for high quality (e.g., miniatures, action figures), suggest a **Bridge Flow Rate** calibration for the specific layer height.
+
+**3. Confirmation**:
+- Allow the user to Confirm (already calibrated), Postpone, or Request Help running specific macros.
 
 ---
 
