@@ -11,14 +11,32 @@ Usage:
 
   python3 generate_profile.py --context state/profile_context.json \
     --machine-only --output-dir ./output
+
+OrcaSlicer profile loading rules (from Preset.cpp source analysis):
+  - Every profile JSON MUST have a "version" field or it is silently dropped.
+  - "inherits" must point to an instantiated profile (instantiation=true).
+    Templates like fdm_process_common / fdm_klipper_common have instantiation=false
+    and are NOT findable by user profiles. Use "" (empty string) for standalone.
+  - "compatible_printers": [] (empty array) = visible for all printers.
+  - "instantiation": "true" required for profiles to appear in the UI.
+  - "from": "User" (capital U).
+  - When logged in, OrcaSlicer uses user/<account_id>/ not user/default/.
+  - Each profile JSON needs a paired .info file when running under a logged-in account.
 """
 
 import argparse
 import json
 import os
 import sys
+import time
+import secrets
 from datetime import datetime
 from pathlib import Path
+
+# OrcaSlicer version to embed in every generated profile.
+# Must match or be close to the installed OrcaSlicer version — profiles with
+# a mismatched version are still loaded but may trigger upgrade prompts.
+ORCASLICER_VERSION = "2.3.0.0"
 
 # ─── Intent presets ───────────────────────────────────────────────────────────
 # Each intent defines base settings BEFORE hardware clamping.
@@ -349,12 +367,20 @@ def generate_machine_profile(ctx, output_dir):
     retract_speed = fw_ret.get("speed", fw_ret.get("retract_speed", 60))
     unretract_speed = fw_ret.get("unretract_speed", 60)
 
+    # Determine inherits parent for the machine profile.
+    # fdm_klipper_common has instantiation=false and cannot be used as a parent.
+    # Use the value stored in profile_context.json if provided (set during onboarding
+    # when a valid instantiated parent is detected), otherwise use empty string so
+    # the profile loads standalone without any parent lookup.
+    machine_parent = ctx.get("orcaslicer_machine_parent", "")
+
     profile = {
+        "version": ORCASLICER_VERSION,
         "type": "machine",
         "name": f"{name} {nozzle}mm nozzle",
         "from": "User",
         "instantiation": "true",
-        "inherits": "fdm_klipper_common",
+        "inherits": machine_parent,
         "gcode_flavor": "klipper",
         "nozzle_diameter": [str(nozzle)],
         "printer_model": safe_name,
@@ -394,6 +420,12 @@ def generate_machine_profile(ctx, output_dir):
     with open(filepath, "w") as f:
         json.dump(profile, f, indent=2)
 
+    # Write paired .info file required by OrcaSlicer when running under a
+    # logged-in account (user/<account_id>/ directory).  Without it the profile
+    # may be silently removed by the cloud-sync on next launch.
+    account_id = ctx.get("environment", {}).get("orcaslicer_account_id", "")
+    _write_info_file(filepath, profile_type="machine", account_id=account_id)
+
     return filepath, profile["name"]
 
 
@@ -429,12 +461,22 @@ def generate_process_profile(ctx, intent, output_dir):
     def ca(accel):
         return clamp_accel(accel, max_accel, y_accel_limit)
 
+    # Process profile inherits parent.
+    # fdm_process_common has instantiation=false — unusable as a parent.
+    # Use a detected valid parent stored in profile_context.json, or fall back
+    # to empty string (standalone profile, no parent lookup).
+    process_parent = ctx.get("orcaslicer_process_parent", "")
+
     profile = {
+        "version": ORCASLICER_VERSION,
         "type": "process",
         "name": f"{layer_h}mm {intent.capitalize()} @{safe_name}",
         "from": "User",
         "instantiation": "true",
-        "inherits": "fdm_process_common",
+        "inherits": process_parent,
+        # Empty array = visible for all printers. Without this field the profile
+        # inherits the parent's compatible_printers restriction, which may hide it.
+        "compatible_printers": [],
         "layer_height": str(layer_h),
         "initial_layer_print_height": str(preset["initial_layer_height"]),
         "line_width": str(line_width),
@@ -479,6 +521,9 @@ def generate_process_profile(ctx, intent, output_dir):
     with open(filepath, "w") as f:
         json.dump(profile, f, indent=2)
 
+    account_id = ctx.get("environment", {}).get("orcaslicer_account_id", "")
+    _write_info_file(filepath, profile_type="process", account_id=account_id)
+
     return filepath, profile["name"]
 
 
@@ -518,12 +563,18 @@ def generate_filament_profile(ctx, filament, output_dir):
     # Use PA from klipper config if available, else filament default
     pa = klipper.get("pressure_advance", defaults["pressure_advance"])
 
+    # Filament profile inherits parent.
+    # fdm_filament_common instantiation status was not confirmed during analysis —
+    # to be safe use empty string (standalone) unless a valid parent is stored in context.
+    filament_parent = ctx.get("orcaslicer_filament_parent", "")
+
     profile = {
+        "version": ORCASLICER_VERSION,
         "type": "filament",
         "name": f"{filament_upper} @{safe_name}",
         "from": "User",
         "instantiation": "true",
-        "inherits": "fdm_filament_common",
+        "inherits": filament_parent,
         "filament_type": defaults["filament_type"],
         "nozzle_temperature": [str(t) for t in defaults["nozzle_temperature"]],
         "nozzle_temperature_initial_layer": [
@@ -555,7 +606,60 @@ def generate_filament_profile(ctx, filament, output_dir):
     with open(filepath, "w") as f:
         json.dump(profile, f, indent=2)
 
+    account_id = ctx.get("environment", {}).get("orcaslicer_account_id", "")
+    _write_info_file(filepath, profile_type="filament", account_id=account_id)
+
     return filepath, profile["name"]
+
+
+def _write_info_file(json_filepath, profile_type, account_id=""):
+    """
+    Write a paired .info file alongside a profile JSON.
+
+    OrcaSlicer requires a .info sidecar for every user profile when running
+    under a logged-in account (user/<account_id>/ directory). Without it the
+    cloud-sync purges the profile on next launch.
+
+    Format:
+        sync_info =
+        user_id = <account_id>
+        setting_id = <PREFIX><14 hex chars>
+        base_id = <GP004 | GM001 | GF001>
+        updated_time = <unix timestamp>
+
+    setting_id prefixes:
+        Process  → PPUS
+        Machine  → MPUS
+        Filament → FPUS
+
+    base_id values (OrcaSlicer internal categories):
+        Process  → GP004
+        Machine  → GM001
+        Filament → GF001
+
+    If account_id is empty the .info file is still written with an empty
+    user_id so it can be filled in manually without regenerating profiles.
+    """
+    prefix_map = {
+        "process": ("PPUS", "GP004"),
+        "machine": ("MPUS", "GM001"),
+        "filament": ("FPUS", "GF001"),
+    }
+    prefix, base_id = prefix_map.get(profile_type, ("PPUS", "GP004"))
+    setting_id = prefix + secrets.token_hex(7).upper()  # 4-char prefix + 14 hex chars
+    updated_time = int(time.time())
+
+    info_content = (
+        f"sync_info = \n"
+        f"user_id = {account_id}\n"
+        f"setting_id = {setting_id}\n"
+        f"base_id = {base_id}\n"
+        f"updated_time = {updated_time}\n"
+    )
+
+    info_filepath = str(json_filepath).replace(".json", ".info")
+    with open(info_filepath, "w") as f:
+        f.write(info_content)
 
 
 def main():

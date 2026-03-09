@@ -269,7 +269,8 @@ Run `scripts/generate_profile.py` with the computed settings. Outputs:
 - Filament profile JSON (if not already generated for this material)
 - Machine profile JSON (if first time, or nozzle changed)
 
-Each JSON follows OrcaSlicer's format with proper `inherits` chains.
+Each JSON follows OrcaSlicer's format. See **OrcaSlicer Profile Validation Rules** below
+for the critical fields and `.info` sidecar requirements.
 
 ### Step 5: Check filament calibration status
 
@@ -338,6 +339,87 @@ Common issues: stringing, ringing/ghosting, layer adhesion, elephant foot, warpi
 
 ### Config Review
 "Review my Klipper config" → Fetch config via Moonraker, compare against best practices for their hardware, flag issues.
+
+---
+
+---
+
+## OrcaSlicer Profile Validation Rules
+
+These rules were reverse-engineered from OrcaSlicer source (`Preset.cpp`). Violating
+any of them causes profiles to be **silently dropped** — no error message is shown.
+
+### Required fields in every profile JSON
+
+| Field | Required value | What happens if missing |
+|-------|---------------|------------------------|
+| `version` | e.g. `"2.3.0.0"` | **Silently dropped on load** |
+| `from` | `"User"` | Profile ignored |
+| `instantiation` | `"true"` | Profile not visible in UI |
+| `type` | `"machine"`, `"process"`, or `"filament"` | Profile ignored |
+
+### `inherits` — valid vs. broken parents
+
+OrcaSlicer stores profiles with `instantiation: false` in a separate `config_maps`
+dict that is **not searchable by user profile lookups**. Using one as a parent silently
+breaks the profile.
+
+| Profile | `instantiation` | Use as parent? |
+|---------|----------------|---------------|
+| `fdm_klipper_common` | `false` | ❌ Broken — silently fails |
+| `fdm_process_common` | `false` | ❌ Broken — silently fails |
+| `fdm_filament_common` | unconfirmed | ⚠️ Avoid — use `""` |
+| `"MyKlipper 0.4 nozzle"` | `true` | ✅ Valid |
+| `"0.20mm Standard @MyKlipper"` | `true` | ✅ Valid |
+| `""` (empty string) | N/A | ✅ Standalone — safe default |
+
+**Safe rule**: always use `"inherits": ""` unless you have confirmed the named parent
+is `instantiation: true` in the user's installation. During onboarding, detect valid
+parents and store them in `profile_context.json`:
+```json
+"orcaslicer_machine_parent":  "MyKlipper 0.4 nozzle",
+"orcaslicer_process_parent":  "0.20mm Standard @MyKlipper",
+"orcaslicer_filament_parent": ""
+```
+
+### `compatible_printers`
+
+- `[]` empty array = visible for **all** printers — always set on process profiles
+- Field omitted = inherits parent's restriction → profile may be hidden unexpectedly
+
+### Logged-in account directory
+
+When the user is signed in to OrcaSlicer, profiles live under:
+```
+<OrcaSlicer data>/user/<numeric_account_id>/    ← logged in
+<OrcaSlicer data>/user/default/                 ← not logged in
+```
+
+`scripts/detect_environment.py` auto-detects which by scanning for numeric
+subdirectories under `user/`. The result is stored as `orcaslicer_account_id` in
+`profile_context.json`.
+
+### `.info` sidecar file requirement
+
+Every profile JSON needs a `.info` sidecar when placed in a logged-in account
+directory. Without it, OrcaSlicer's cloud-sync **purges the profile on next launch**.
+
+```
+sync_info =
+user_id = <account_id>
+setting_id = <PREFIX><14 hex chars>
+base_id = <GP004 | GM001 | GF001>
+updated_time = <unix timestamp>
+```
+
+| Profile type | `setting_id` prefix | `base_id` |
+|-------------|---------------------|-----------|
+| Process | `PPUS` | `GP004` |
+| Machine | `MPUS` | `GM001` |
+| Filament | `FPUS` | `GF001` |
+
+`scripts/generate_profile.py` writes `.info` files automatically. If placing profiles
+manually, generate a `.info` alongside each JSON.
 
 ---
 

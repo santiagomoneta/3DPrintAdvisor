@@ -83,3 +83,95 @@ PRINT_START EXTRUDER=[nozzle_temperature_initial_layer] BED=[bed_temperature_ini
 | "Unknown command G2" | Missing `[gcode_arcs]` | Add section |
 | PA makes extruder skip | PA × accel too high for motor torque | Lower PA or accel |
 | Jerk setting does nothing | Klipper ignores Marlin jerk | Use SCV in printer.cfg |
+
+---
+
+## OrcaSlicer User Profile Requirements
+
+These rules were determined by reading OrcaSlicer source (`Preset.cpp`). Violating
+them causes profiles to be **silently dropped** — no error is shown in the UI.
+
+### Required fields in every profile JSON
+
+| Field | Required value | Notes |
+|-------|---------------|-------|
+| `version` | e.g. `"2.3.0.0"` | **MUST be present.** Missing = profile silently dropped on load. |
+| `from` | `"User"` | Capital U. |
+| `instantiation` | `"true"` | Profile won't appear in UI if missing or `"false"`. |
+| `type` | `"machine"`, `"process"`, or `"filament"` | Required. |
+| `name` | Unique string | Must not collide with a system profile name. |
+
+### `inherits` — valid vs. invalid parents
+
+OrcaSlicer only allows `inherits` to point to profiles with `instantiation: true`.
+System template profiles with `instantiation: false` are stored in a separate map
+and are **not findable** from user profiles.
+
+| Profile | `instantiation` | Can be used as parent? |
+|---------|----------------|----------------------|
+| `fdm_klipper_common` | `false` | ❌ Silently broken |
+| `fdm_process_common` | `false` | ❌ Silently broken |
+| `fdm_filament_common` | Unconfirmed | ⚠️ Avoid — use `""` to be safe |
+| `"MyKlipper 0.4 nozzle"` | `true` | ✅ Valid |
+| `"0.20mm Standard @MyKlipper"` | `true` | ✅ Valid |
+| `""` (empty string) | N/A | ✅ Standalone — no parent lookup |
+
+**Safe fallback**: use `"inherits": ""` for all generated profiles unless you
+have confirmed the named parent is `instantiation: true` in the active install.
+
+Store the detected valid parent in `profile_context.json`:
+```json
+"orcaslicer_machine_parent":  "MyKlipper 0.4 nozzle",
+"orcaslicer_process_parent":  "0.20mm Standard @MyKlipper",
+"orcaslicer_filament_parent": ""
+```
+
+### `compatible_printers`
+
+| Value | Effect |
+|-------|--------|
+| `[]` (empty array) | Profile visible for **all** printers |
+| `["My Printer Name"]` | Profile visible only for that printer |
+| Field omitted | Inherits parent's restriction — may hide profile unexpectedly |
+
+Always set `"compatible_printers": []` on generated process profiles unless you
+specifically want to restrict visibility.
+
+### Logged-in account directory
+
+When the user is signed in to OrcaSlicer, profiles live under:
+```
+user/<numeric_account_id>/   ← correct when logged in
+user/default/                ← only used when NOT logged in
+```
+
+The active directory is whichever numeric subdirectory exists under `user/`.
+`scripts/detect_environment.py` auto-detects this and returns `orcaslicer_account_id`.
+
+### `.info` sidecar file
+
+Every profile JSON needs a paired `.info` file when placed in a logged-in account
+directory. Without it OrcaSlicer's cloud-sync purges the profile on next launch.
+
+```
+sync_info =
+user_id = <account_id>
+setting_id = <PREFIX><14 hex chars>
+base_id = <GP004 | GM001 | GF001>
+updated_time = <unix timestamp>
+```
+
+| Profile type | `setting_id` prefix | `base_id` |
+|-------------|---------------------|-----------|
+| Process | `PPUS` | `GP004` |
+| Machine | `MPUS` | `GM001` |
+| Filament | `FPUS` | `GF001` |
+
+`scripts/generate_profile.py` writes `.info` files automatically alongside each JSON.
+
+### Moonraker port reference
+
+| Port | Protocol | `host_type` in machine profile |
+|------|----------|-------------------------------|
+| `7125` | Moonraker native API | `"klipper"` |
+| `8080` | Moonraker OctoPrint compat | `"octoprint"` |

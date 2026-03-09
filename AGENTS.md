@@ -72,18 +72,25 @@ The primary file the AI agent reads. Contains:
 - Script documentation (usage, arguments, output format)
 - File structure reference
 
-### scripts/detect_environment.sh (159 lines)
-Detects OS (macOS/Linux/Windows via WSL) and finds OrcaSlicer binary + profile directory. Outputs JSON to stdout. Tested on macOS.
+### scripts/detect_environment.sh
+Bash wrapper. Detects OS (macOS/Linux/Windows via WSL) and finds OrcaSlicer binary + profile directory.
+
+### scripts/detect_environment.py
+Python implementation (cross-platform). Outputs JSON to stdout with fields:
+`os`, `orcaslicer_path`, `orcaslicer_found`, `orcaslicer_version`, `orcaslicer_profile_dir`,
+`orcaslicer_profile_dir_exists`, `orcaslicer_account_id`.
+Scans `user/` for numeric subdirectories (logged-in account IDs) and prefers them over `default`.
 
 ### scripts/fetch_klipper_config.sh (247 lines)
 Connects to Moonraker API at given URL, pulls full Klipper config (`/printer/objects/query?configfile`), and parses it into structured JSON. Extracts: printer limits, extruder settings, input shaper, firmware retraction, stepper configs, TMC driver settings, installed macros/features, and live state (current PA, accel, temps). Tested against live printer.
 
-### scripts/generate_profile.py (642 lines)
+### scripts/generate_profile.py
 Generates OrcaSlicer-compatible JSON profiles. Takes `--context` (profile_context.json), `--intent`, `--filament`, `--output-dir`. Contains:
 - 6 intent presets × 6 filament types with full settings matrices
 - Hardware clamping: speeds capped by max_velocity, accels by per-axis limits, flow by volumetric ceiling
-- Outputs machine, process, filament, and machine_model JSON files with proper `inherits` chains
-- Tested end-to-end, generates 13 profile files successfully.
+- Outputs machine, process, and filament JSON files with proper `version`, `inherits`, `compatible_printers`
+- Writes paired `.info` sidecar files for logged-in account directories
+- `inherits` parents read from `profile_context.json` (`orcaslicer_machine/process/filament_parent`); defaults to `""` (standalone)
 
 ### scripts/install_klipper_extras.sh (740 lines)
 Automated installer for Klipper optional extras. Runs locally but reaches out to Moonraker API and SSH to the Klipper host. Modes: `--check` (audit what's missing), `--install` (install specified extras), `--list` (show all). Handles:
@@ -154,3 +161,51 @@ Each entry includes: what it does, detect method, install commands, config snipp
 - PA varies ~33% across speed range — OrcaSlicer Adaptive PA recommended for multi-profile users
 - Bridge flow rate is per-layer-height — the one calibration that IS per-process
 - Zero hardcoded IPs, usernames, or printer-specific values anywhere in the codebase
+
+## OrcaSlicer Profile Loading Rules (from Preset.cpp source analysis)
+
+These rules were reverse-engineered from OrcaSlicer source. Violating them causes
+profiles to be **silently dropped** with no UI error.
+
+### Required JSON fields
+Every profile must have:
+- `"version"` — e.g. `"2.3.0.0"`. **Missing = silently dropped.**
+- `"from": "User"` — capital U
+- `"instantiation": "true"` — profile won't show in UI without this
+- `"type"` — `"machine"`, `"process"`, or `"filament"`
+
+### `inherits` — broken parents
+OrcaSlicer only resolves `inherits` against profiles with `instantiation: true`.
+System templates (`fdm_klipper_common`, `fdm_process_common`, `fdm_filament_common`)
+all have `instantiation: false` — they are stored in a separate config_maps dict
+and are **not findable** from user profiles.
+
+**Rule**: generated profiles use `"inherits": ""` (standalone) by default.
+If a valid instantiated parent is detected during onboarding, store it in
+`profile_context.json` as:
+```json
+"orcaslicer_machine_parent":  "MyKlipper 0.4 nozzle",
+"orcaslicer_process_parent":  "0.20mm Standard @MyKlipper",
+"orcaslicer_filament_parent": ""
+```
+
+### `compatible_printers`
+- `[]` (empty array) = visible for all printers — always set this on process profiles
+- Omitting the field = inherits parent's restriction, which may hide the profile
+
+### Logged-in account directory
+When the user is signed in, OrcaSlicer uses `user/<account_id>/`, NOT `user/default/`.
+`detect_environment.py` now auto-detects this by scanning for numeric subdirectories.
+The `orcaslicer_account_id` field is added to the output JSON.
+
+### `.info` sidecar files
+Every profile JSON in a logged-in account directory needs a `.info` file:
+```
+sync_info =
+user_id = <account_id>
+setting_id = <PREFIX><14 hex chars>   # PPUS=process, MPUS=machine, FPUS=filament
+base_id = <GP004 | GM001 | GF001>
+updated_time = <unix timestamp>
+```
+`generate_profile.py` writes these automatically. Profiles without `.info` are
+purged by cloud-sync on next OrcaSlicer launch.
