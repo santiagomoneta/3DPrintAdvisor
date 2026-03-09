@@ -36,7 +36,7 @@ from pathlib import Path
 # OrcaSlicer version to embed in every generated profile.
 # Must match or be close to the installed OrcaSlicer version — profiles with
 # a mismatched version are still loaded but may trigger upgrade prompts.
-ORCASLICER_VERSION = "2.3.0.0"
+ORCASLICER_VERSION = "2.3.2.51"
 
 # ─── Intent presets ───────────────────────────────────────────────────────────
 # Each intent defines base settings BEFORE hardware clamping.
@@ -646,7 +646,9 @@ def _write_info_file(json_filepath, profile_type, account_id=""):
         "filament": ("FPUS", "GF001"),
     }
     prefix, base_id = prefix_map.get(profile_type, ("PPUS", "GP004"))
-    setting_id = prefix + secrets.token_hex(7).upper()  # 4-char prefix + 14 hex chars
+    setting_id = prefix + secrets.token_hex(
+        7
+    )  # 4-char prefix + 14 lowercase hex (matches OrcaSlicer format)
     updated_time = int(time.time())
 
     info_content = (
