@@ -451,6 +451,30 @@ Supported extras: `firmware_retraction`, `exclude_object`, `gcode_arcs`, `skew_c
 Native config sections are injected via Moonraker file API. Third-party modules (auto_speed, KAMP) require SSH to the Klipper host. The script handles config injection, moonraker.conf updates, service restarts, and duplicate detection.
 Output: JSON to stdout with install results per extra.
 
+### `scripts/fetch_config.sh`
+Fetches a specific Klipper config file by name from Moonraker.
+Usage: `bash scripts/fetch_config.sh <moonraker_url> <filename>`
+Output: Raw file content to stdout (e.g. `printer.cfg`, `macros/macros.cfg`).
+
+### `scripts/upload_config.sh`
+Uploads a local config file to Klipper via Moonraker file upload API.
+Usage: `bash scripts/upload_config.sh <moonraker_url> <local_file> [subdir]`
+Handles correct form field names (`filename=` not `path=`) to avoid Moonraker `NotADirectoryError`.
+
+### `scripts/send_gcode.sh`
+Sends a single G-code command to Klipper via Moonraker.
+Usage: `bash scripts/send_gcode.sh <moonraker_url> "<GCODE_COMMAND>"`
+Example: `bash scripts/send_gcode.sh http://192.168.0.224:7125 "FIRMWARE_RESTART"`
+
+### `scripts/query_status.sh`
+Queries live printer state from Moonraker (temperatures, print status, toolhead position).
+Usage: `bash scripts/query_status.sh <moonraker_url>`
+Output: JSON with current printer objects state.
+
+### `scripts/diagnose.sh`
+Runs a full diagnostic pass: fetches config, checks for common issues (duplicates, deprecated params, out-of-range values), and prints a report.
+Usage: `bash scripts/diagnose.sh <moonraker_url>`
+
 ---
 
 ## References
@@ -470,6 +494,27 @@ Complete OrcaSlicer JSON key ↔ Klipper config mapping table.
 ### `references/klipper_extras_database.md`
 Complete reference for all optional Klipper modules/macros the skill may install. Covers native config sections, third-party modules (auto_speed, KAMP), standalone macros (TEST_SPEED), with install procedures, config snippets, and priority ordering for newbies.
 
+### `references/config_sections.md`
+All 40+ Klipper config section types with their parameters, required fields, and valid value ranges. Use when reviewing or editing `printer.cfg`.
+
+### `references/gcodes.md`
+Complete reference for all standard G-codes and Klipper extended commands (e.g. `SHAPER_CALIBRATE`, `BED_MESH_CALIBRATE`, `PRESSURE_ADVANCE_CALIBRATE`). Use when constructing or interpreting G-code sequences.
+
+### `references/moonraker_api.md`
+Full Moonraker REST API reference with curl examples. Covers file upload (correct form fields), G-code execution, printer object queries, service restart, and file management endpoints.
+
+### `references/troubleshooting.md`
+20+ common Klipper error patterns with root causes and exact fix steps. Covers move-out-of-range, duplicate config sections, deprecated parameters, TMC errors, and more.
+
+### `references/placeholders.md`
+Complete reference for all OrcaSlicer built-in placeholder variables usable in start/end G-code, layer change G-code, and toolchange G-code (e.g. `[bed_temperature]`, `[layer_num]`, `[filament_type]`).
+
+### `references/profiles.md`
+OrcaSlicer profile JSON schema and inheritance model. Covers all four profile types (machine, process, filament, vendor), required fields, `.info` sidecar format, and common pitfalls.
+
+### `references/settings.md`
+Annotated reference for all major OrcaSlicer settings across the three profile types with their config key names (usable as placeholders), valid ranges, and effect on print quality.
+
 ---
 
 ## File Structure
@@ -481,15 +526,27 @@ Complete reference for all optional Klipper modules/macros the skill may install
 ├── README.md                             # GitHub-facing documentation
 ├── scripts/
 │   ├── detect_environment.sh             # OS + OrcaSlicer detection
-│   ├── fetch_klipper_config.sh           # Moonraker API config fetch
-│   ├── generate_profile.py              # Profile JSON generator
-│   └── install_klipper_extras.sh        # Automated Klipper extras installer
+│   ├── fetch_klipper_config.sh           # Moonraker API full config fetch + parse
+│   ├── fetch_config.sh                   # Fetch a single config file by name
+│   ├── upload_config.sh                  # Upload config file via Moonraker
+│   ├── send_gcode.sh                     # Send G-code command to Klipper
+│   ├── query_status.sh                   # Query live printer state
+│   ├── diagnose.sh                       # Full config diagnostic report
+│   ├── generate_profile.py               # Profile JSON generator
+│   └── install_klipper_extras.sh         # Automated Klipper extras installer
 ├── references/
 │   ├── print_intent_profiles.md          # Intent → settings matrices
 │   ├── calibration_toolkit.md            # Calibration guide
 │   ├── hotend_database.md                # Hotend flow limits
-│   ├── orca_klipper_mapping.md           # Setting mapping table
-│   └── klipper_extras_database.md        # Klipper module install procedures
+│   ├── orca_klipper_mapping.md           # OrcaSlicer ↔ Klipper setting mapping
+│   ├── klipper_extras_database.md        # Klipper module install procedures
+│   ├── config_sections.md                # All Klipper config sections + parameters
+│   ├── gcodes.md                         # G-code and extended command reference
+│   ├── moonraker_api.md                  # Moonraker REST API with curl examples
+│   ├── troubleshooting.md                # 20+ error patterns with fixes
+│   ├── placeholders.md                   # OrcaSlicer placeholder variable reference
+│   ├── profiles.md                       # OrcaSlicer profile JSON schema
+│   └── settings.md                       # Annotated OrcaSlicer settings reference
 ├── state/
 │   └── profile_context.json              # Persisted printer/env state (created on first run)
 └── output/                               # Generated profiles land here
