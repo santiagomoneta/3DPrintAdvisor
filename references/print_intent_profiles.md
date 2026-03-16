@@ -14,8 +14,9 @@ Not concerned about: print time, structural strength.
 
 ### Miniature / Figurine
 Small detailed parts: tabletop minis, anime figures, detailed sculptures.
-Priorities: fine detail, thin features, tiny overhangs, smooth top surfaces.
-Key settings: very low layer height, low speed, low accel, ironing, many top layers.
+Priorities: fine detail, thin features, tiny overhangs, smooth surfaces.
+Key hardware: 0.2mm nozzle strongly recommended — 0.4mm loses fine detail.
+Key settings: 0.06mm layer height (optimal balance), classic wall generator (not Arachne), inner-outer-inner wall sequence, very low speeds, stepped overhang slowdowns, gyroid infill, scarf seam, tree supports with correct tip diameter.
 Not concerned about: print time (these are commitment prints).
 
 ### Prototype / Draft
@@ -39,11 +40,11 @@ Key settings: more walls, more infill, moderate speed for good bonding.
 
 | Setting | Functional | Visual | Miniature | Prototype | Wearable | Structural |
 |---------|-----------|--------|-----------|-----------|----------|------------|
-| Layer height | 0.20 | 0.12 | 0.08 | 0.24 | 0.20 | 0.20 |
-| Outer wall | 80 | 40 | 25 | 120 | 25 | 60 |
-| Inner wall | 120 | 60 | 40 | 180 | 30 | 80 |
-| Infill | 150 | 80 | 60 | 200 | 40 | 100 |
-| Top surface | 60 | 30 | 20 | 80 | 20 | 40 |
+| Layer height | 0.20 | 0.12 | 0.06 | 0.24 | 0.20 | 0.20 |
+| Outer wall | 80 | 40 | 35 | 120 | 25 | 60 |
+| Inner wall | 120 | 60 | 55 | 180 | 30 | 80 |
+| Infill | 150 | 80 | 65 | 200 | 40 | 100 |
+| Top surface | 60 | 30 | 35 | 80 | 20 | 40 |
 | Travel | 200 | 150 | 120 | 250 | 80 | 150 |
 | First layer | 30 | 20 | 15 | 40 | 15 | 25 |
 | Bridge | 25 | 20 | 15 | 30 | 15 | 20 |
@@ -52,10 +53,10 @@ Key settings: more walls, more infill, moderate speed for good bonding.
 
 | Setting | Functional | Visual | Miniature | Prototype | Wearable | Structural |
 |---------|-----------|--------|-----------|-----------|----------|------------|
-| Default | 3000 | 1500 | 1000 | 5000 | 1000 | 2000 |
-| Outer wall | 1500 | 800 | 500 | 2500 | 500 | 1000 |
-| Inner wall | 3000 | 1500 | 1000 | 5000 | 1000 | 2000 |
-| Top surface | 1500 | 800 | 500 | 2500 | 500 | 1000 |
+| Default | 3000 | 1500 | 2000 | 5000 | 1000 | 2000 |
+| Outer wall | 1500 | 800 | 1000 | 2500 | 500 | 1000 |
+| Inner wall | 3000 | 1500 | 2000 | 5000 | 1000 | 2000 |
+| Top surface | 1500 | 800 | 1000 | 2500 | 500 | 1000 |
 | Travel | 3000 | 2000 | 1500 | 5000 | 1000 | 2000 |
 | First layer | 500 | 500 | 300 | 500 | 300 | 500 |
 
@@ -66,9 +67,9 @@ Key settings: more walls, more infill, moderate speed for good bonding.
 | Walls | 3 | 3 | 3 | 2 | 4 | 5 |
 | Top layers | 4 | 5 | 6 | 3 | 4 | 5 |
 | Bottom layers | 3 | 4 | 5 | 3 | 3 | 5 |
-| Infill % | 25% | 15% | 15% | 10% | 15% | 50% |
-| Infill pattern | gyroid | grid | grid | grid | gyroid | cubic |
-| Seam | nearest | aligned | aligned | nearest | nearest | nearest |
+| Infill % | 25% | 15% | 20% | 10% | 15% | 50% |
+| Infill pattern | gyroid | grid | gyroid | grid | gyroid | cubic |
+| Seam | nearest | aligned | scarf | nearest | nearest | nearest |
 | Ironing | no | no | top | no | no | no |
 | Bridge flow | 0.95 | 0.90 | 0.85 | 1.0 | 1.0 | 0.95 |
 
@@ -121,8 +122,9 @@ Key settings: more walls, more infill, moderate speed for good bonding.
 - User can request ironing on any intent
 
 ### Arachne wall generator
-- Enabled for all intents (better thin wall handling)
-- Especially important for miniature and visual intents
+- Enabled for all intents **except miniature**
+- For miniature intent: use **Classic** wall generator — fewer edge-case artifacts at small scales with fine geometry
+- Especially important for visual intent (better thin wall handling)
 
 ### Arc fitting
 - Enabled for all intents if `[gcode_arcs]` is in Klipper config
@@ -131,3 +133,44 @@ Key settings: more walls, more infill, moderate speed for good bonding.
 ### Detect thin wall
 - Enabled for all intents
 - Critical for miniature intent (tiny features)
+
+---
+
+## Miniature Support Settings
+
+These settings are critical for miniature printing — wrong values cause supports to fuse to the model.
+
+| Setting | Value | Notes |
+|---------|-------|-------|
+| `support_type` | `tree(auto)` | Organic/grid style, NOT slim |
+| `support_style` | `default` | Slim style skips interface generation |
+| `support_threshold_angle` | `15°` | Conservative; increase to 20–25° if spaghetti, max 30° |
+| `support_top_z_distance` | multiple of layer_height | 0.06mm layers → 0.18mm; 0.08mm → 0.24mm; 0.12mm → 0.12mm |
+| `support_bottom_z_distance` | `0mm` | |
+| `support_interface_spacing` | `0.2mm` | |
+| `support_base_pattern` | `rectilinear-grid` | |
+| `support_base_pattern_spacing` | `3mm` | |
+| `tree_support_tip_diameter` | `1.2mm` | **CRITICAL**: values below 1.0mm suppress interface generation, causing supports to fuse directly to the model. If support interface (dark green in preview) is missing, increase this value. |
+| `tree_support_branch_diameter` | `1.0mm` | |
+| `tree_support_branch_distance` | `1.0mm` | |
+| `tree_support_wall_count` | `2` | |
+| `support_on_build_plate_only` | `true` | |
+| `bridge_flow` | `0.85` | |
+| `internal_bridge_flow` | `0.85` | |
+| `thick_internal_bridges` | `false` | |
+
+## Miniature Workflow Tips
+
+- **Split complex models into parts** and orient each piece to minimize overhangs — bigger impact than any setting change
+- **Orientation first**: maximize flat base area, rotate arms/weapons to reduce unsupported angles
+- **Filament calibration** (flow ratio, PA, temperature) has more quality impact than going from 0.06mm to 0.05mm layers
+- **Dry filament**: 8h at 50°C for PLA before printing — moisture causes surface defects at 0.06mm layers
+- **Recommended filaments**: eSun PLA+ HS (better overhangs), Sunlu PLA+ 2.0 HS (better surface quality)
+- **Ironing**: off by default for miniatures (few flat surfaces); enable only for vehicles/terrain with large flat tops
+- **If nozzle hits print**: disable `reduce_infill_retraction` first — most common cause
+- **If support trees fall over**: check first layer adhesion — tree supports need a solid anchor
+- **If support interface is missing** in preview (dark green layer absent): increase `tree_support_tip_diameter`
+
+> **Source:** "Dungeons and Derps" HQ Profile v2.0 by u/ObscuraNox
+> ([r/FDMminiatures](https://www.reddit.com/r/FDMminiatures/comments/1rbnet7/high_quality_profile_version_20_is_here/)) —
+> settings and rationale extracted from the v2.0 JSON profile and full documentation post.

@@ -96,30 +96,34 @@ INTENT_PRESETS = {
         "bridge_flow": 0.90,
     },
     "miniature": {
-        "description": "Miniatures/figurines — fine detail, small features",
-        "layer_height": 0.08,
-        "initial_layer_height": 0.16,
+        "description": "Miniatures/figurines — fine detail, small features (0.2mm nozzle recommended)",
+        "layer_height": 0.06,
+        "initial_layer_height": 0.12,
         "wall_loops": 3,
         "top_shell_layers": 6,
         "bottom_shell_layers": 5,
-        "sparse_infill_density": "15%",
-        "sparse_infill_pattern": "grid",
-        "outer_wall_speed": 25,
-        "inner_wall_speed": 40,
-        "sparse_infill_speed": 60,
-        "internal_solid_infill_speed": 40,
-        "top_surface_speed": 20,
+        "sparse_infill_density": "20%",
+        "sparse_infill_pattern": "gyroid",
+        "outer_wall_speed": 35,
+        "inner_wall_speed": 55,
+        "sparse_infill_speed": 65,
+        "internal_solid_infill_speed": 45,
+        "top_surface_speed": 35,
         "bridge_speed": 15,
-        "gap_infill_speed": 20,
+        "gap_infill_speed": 30,
         "travel_speed": 120,
         "initial_layer_speed": 15,
-        "default_acceleration": 1000,
-        "outer_wall_acceleration": 500,
-        "inner_wall_acceleration": 1000,
-        "top_surface_acceleration": 500,
+        "default_acceleration": 2000,
+        "outer_wall_acceleration": 1000,
+        "inner_wall_acceleration": 2000,
+        "top_surface_acceleration": 1000,
         "travel_acceleration": 1500,
         "initial_layer_acceleration": 300,
         "bridge_flow": 0.85,
+        # Overhang speed steps (D&D v2.0)
+        "overhang_1_4_speed": 40,
+        "overhang_2_4_speed": 30,
+        "overhang_3_4_speed": 20,
     },
     "prototype": {
         "description": "Prototypes/drafts — speed over quality",
@@ -504,16 +508,65 @@ def generate_process_profile(ctx, intent, output_dir):
         "bridge_flow": str(preset["bridge_flow"]),
         "seam_position": "aligned" if intent in ("visual", "miniature") else "nearest",
         "enable_arc_fitting": "1",
-        "wall_generator": "arachne",
+        "wall_generator": "classic" if intent == "miniature" else "arachne",
         "detect_thin_wall": "1",
         "only_one_wall_top": "1" if intent in ("miniature", "visual") else "0",
-        "ironing_type": "top" if intent == "miniature" else "no ironing",
+        "ironing_type": "no ironing",
     }
 
-    # Miniature-specific: enable ironing for top surfaces
+    # Miniature-specific settings (D&D v2.0 community profile by u/ObscuraNox)
     if intent == "miniature":
-        profile["ironing_speed"] = "15"
-        profile["ironing_flow"] = "10%"
+        # Wall sequence: inner-outer-inner improves surface quality
+        profile["wall_sequence"] = "inner-outer-inner wall"
+        # Scarf seam for cleaner seam hiding on curved surfaces
+        profile["seam_slope_entire_loop"] = "1"
+        # Line width overrides for 0.2mm nozzle detail work
+        profile["inner_wall_line_width"] = "120%"
+        profile["outer_wall_line_width"] = "115%"
+        profile["top_surface_line_width"] = "105%"
+        profile["internal_solid_infill_line_width"] = "110%"
+        profile["sparse_infill_line_width"] = "110%"
+        # Overhang speed steps
+        profile["overhang_1_4_speed"] = str(cs(preset["overhang_1_4_speed"]))
+        profile["overhang_2_4_speed"] = str(cs(preset["overhang_2_4_speed"]))
+        profile["overhang_3_4_speed"] = str(cs(preset["overhang_3_4_speed"]))
+        # Bridge flow
+        profile["internal_bridge_flow"] = "0.85"
+        profile["thick_internal_bridges"] = "0"
+        # Reduce crossing wall (reduces stringing across walls)
+        profile["reduce_crossing_wall"] = "1"
+        # Keep reduce_infill_retraction OFF until filament is calibrated
+        profile["reduce_infill_retraction"] = "0"
+        # Brim for thin bases and multi-piece prints
+        profile["brim_type"] = "outer_only"
+        profile["brim_width"] = "6"
+        # Skirt to prime nozzle before model
+        profile["skirt_distance"] = "2.5"
+        profile["skirt_height"] = "2"
+        # XY compensation (D&D v2.0 values)
+        profile["xy_contour_compensation"] = "0.05"
+        profile["xy_hole_compensation"] = "-0.1"
+        # Support settings — critical for miniatures
+        profile["enable_support"] = "1"
+        profile["support_type"] = "tree(auto)"
+        profile["support_style"] = "default"
+        profile["support_threshold_angle"] = "15"
+        # top_z_distance must be a multiple of layer_height (3× = 0.18mm for 0.06mm layers)
+        profile["support_top_z_distance"] = str(round(preset["layer_height"] * 3, 3))
+        profile["support_bottom_z_distance"] = "0"
+        profile["support_interface_spacing"] = "0.2"
+        profile["support_base_pattern"] = "rectilinear-grid"
+        profile["support_base_pattern_spacing"] = "3"
+        # CRITICAL: tip_diameter below 1.0mm suppresses interface generation
+        profile["tree_support_tip_diameter"] = "1.2"
+        profile["tree_support_branch_diameter"] = "1"
+        profile["tree_support_branch_distance"] = "1"
+        profile["tree_support_wall_count"] = "2"
+        profile["support_on_build_plate_only"] = "1"
+        profile["independent_support_layer_height"] = "0"
+        # Ironing OFF by default (few flat surfaces on minis)
+        # User can enable manually for vehicles/terrain with large flat tops
+        profile["ironing_type"] = "no ironing"
 
     filename = f"{layer_h}mm_{intent}_{safe_name}.json"
     filepath = os.path.join(output_dir, "process", filename)
